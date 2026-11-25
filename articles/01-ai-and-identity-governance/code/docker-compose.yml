@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bank-postgres
+    environment:
+      POSTGRES_DB: bank_db
+      POSTGRES_USER: bank_admin
+      POSTGRES_PASSWORD: SecretPostgresPassword123!
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5
+    container_name: bank-keycloak
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/bank_db
+      KC_DB_USERNAME: bank_admin
+      KC_DB_PASSWORD: SecretPostgresPassword123!
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: AdminSuperSecretPassword123!
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: bank-opa
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "/policies"
+    volumes:
+      - ./policies:/policies
+    ports:
+      - "8181:8181"
+
+  ai-backend:
+    build: .
+    container_name: bank-ai-assistant
+    environment:
+      KEYCLOAK_ISSUER: "http://keycloak:8080/realms/bank-realm"
+      OPA_URL: "http://opa:8181/v1/data/bank/ai/governance"
+      DATABASE_URL: "postgresql://bank_admin:SecretPostgresPassword123!@postgres:5432/bank_db"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - keycloak
+      - opa
+      - postgres
+
+volumes:
+  pgdata:
