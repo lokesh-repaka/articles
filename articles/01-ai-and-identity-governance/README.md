@@ -130,17 +130,12 @@ Before an AI agent can execute an action on behalf of an enterprise, the archite
 
 Identity Governance is the discipline of managing and controlling **who** (humans) and **what** (machines, workloads, agents) are allowed to access which systems, under what specific authority, and for what legitimate business purpose.
 
-```
-       ┌────────────────────────────────────────────────────────┐
-       │             IDENTITY GOVERNANCE ANSWERS:               │
-       ├────────────────────────────────────────────────────────┤
-       │ 1. Who or what are you?       (Authentication)         │
-       │ 2. What are you permitted?    (Authorization & RBAC)   │
-       │ 3. Why do you have access?    (Business Justification) │
-       │ 4. Who approved this access?  (Attestation & Sign-off) │
-       │ 5. Is it still appropriate?   (Access Reviews & JML)   │
-       └────────────────────────────────────────────────────────┘
-```
+> ### Core Questions of Identity Governance
+> 1. **Who or what are you?** *(Authentication)*
+> 2. **What are you permitted to do?** *(Authorization & RBAC)*
+> 3. **Why do you have access?** *(Business Justification)*
+> 4. **Who approved this access?** *(Attestation & Sign-off)*
+> 5. **Is that access still appropriate?** *(Access Reviews & JML)*
 
 > **Important Boundary:** Identity Governance validates *who is allowed through the door and what roles they carry*. It does not evaluate whether a specific prompt argument inside the application is secure—that is the responsibility of **Application Policy Engines (e.g., OPA)** and **Safety Guardrails**. Both layers are required.
 
@@ -216,20 +211,8 @@ With Keycloak human identity governance:
 When configuring Keycloak for an AI-enabled environment, several core constructs come into play:
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│                       KEYCLOAK SERVER                           │
-│                                                                 │
-│  ┌───────────────────────────┐   ┌───────────────────────────┐  │
-│  │       MASTER REALM        │   │        BANK REALM         │  │
-│  │  (Server Admin Only)      │   │  (Operational Workloads)  │  │
-│  └───────────────────────────┘   │                           │  │
-│                                  │  • Users & Attributes     │  │
-│                                  │  • Groups (Finance-Team)  │  │
-│                                  │  • Clients (ai-banking)   │  │
-│                                  │  • Realm & Client Roles   │  │
-│                                  │  • Audit Event Logger     │  │
-│                                  └───────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+[Master Realm (Admin Only)]  ---> Manages Keycloak server configuration & operational realms
+[Bank Realm (bank-realm)]    ---> Houses Users (Rahul), Groups (Finance-Team), and AI Clients
 ```
 
 * **Realms:** A realm is an isolated tenant within Keycloak. 
@@ -249,22 +232,12 @@ When configuring Keycloak for an AI-enabled environment, several core constructs
 
 Understanding the distinction between Realm Roles and Client Roles is vital for securing AI services:
 
-```text
-               ┌──────────────────────────────────────┐
-               │              BANK REALM              │
-               │                                      │
-               │   Realm Role: [ employee ]           │  <-- Applies universally
-               │                                      │
-               │   ┌──────────────────────────────┐   │
-               │   │ Client: ai-banking-assistant │   │
-               │   │                              │   │
-               │   │ Client Roles:                │   │  <-- Scoped strictly to
-               │   │   • invoice_viewer           │   │      this specific AI tool
-               │   │   • invoice_processor        │   │
-               │   │   • payment_approver         │   │
-               │   └──────────────────────────────┘   │
-               └──────────────────────────────────────┘
-```
+| Scope | Role Type | Example | Purpose in AI System |
+| :--- | :--- | :--- | :--- |
+| **Global / Organization** | Realm Role | `employee` | Baseline authentication across all internal banking portals |
+| **Application-Specific** | Client Role | `invoice_viewer` | Read-only permission to query invoice tables in AI Banking Assistant |
+| **Application-Specific** | Client Role | `invoice_processor` | Permission to draft invoice reviews via AI Assistant |
+| **Application-Specific** | Client Role | `payment_approver` | High-privilege sign-off (blocked for junior staff via SoD) |
 
 * **Realm Roles:** Global permissions valid across the entire organization. Examples include `employee`, `contractor`, or `manager`. They signify baseline organizational status.
 * **Client Roles:** Dedicated, granular permissions scoped strictly to a single application. For the `ai-banking-assistant`, client roles dictate exactly what tools the AI may invoke on the user’s behalf:
@@ -303,31 +276,8 @@ Zero-Trust architectures dictate that **machines must authenticate dynamically u
 * **SPIFFE** (*Secure Production Identity Framework for Everyone*) is an open-source standard defining a universal identity format for workloads.
 * **SPIRE** (*SPIFFE Runtime Environment*) is the production-ready reference implementation.
 
-```text
-  ┌────────────────────────────────────────────────────────┐
-  │                 SPIRE SERVER (Root CA)                 │
-  │              Trust Domain: bank.internal               │
-  └───────────────────────────┬────────────────────────────┘
-                              │ 1. Mutual TLS Node Sync
-                              ▼
-  ┌────────────────────────────────────────────────────────┐
-  │                 KUBERNETES WORKER NODE                 │
-  │                                                        │
-  │  ┌──────────────────────┐                              │
-  │  │     SPIRE Agent      │ (DaemonSet)                  │
-  │  └──────────┬───────────┘                              │
-  │             │ 2. Workload Attestation via Unix Socket  │
-  │             ▼    (/tmp/spire-agent/public/api.sock)    │
-  │  ┌──────────────────────────────────────────────────┐  │
-  │  │            AI AGENT WORKLOAD POD                 │  │
-  │  │                                                  │  │
-  │  │  SPIFFE ID:                                      │  │
-  │  │  spiffe://bank.internal/ns/ai/sa/invoice-agent   │  │
-  │  │                                                  │  │
-  │  │  Issued: Short-Lived X.509 SVID (10-min expiry)  │  │
-  │  └──────────────────────────────────────────────────┘  │
-  └────────────────────────────────────────────────────────┘
-```
+* **SPIFFE ID Pattern:** `spiffe://<trust-domain>/<workload-path>` (e.g., `spiffe://bank.internal/ns/ai/sa/invoice-agent`)
+* **SVID Lifetime:** Short-lived X.509 certificate or JWT rotating automatically every 5–10 minutes.
 
 #### The Step-by-Step Attestation Process:
 
